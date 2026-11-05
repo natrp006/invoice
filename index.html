@@ -95,6 +95,8 @@ body.cust{background:#e5e7eb;color:#111827}
 .lines th:last-child,.lines td:last-child{text-align:right;padding-right:0}
 .lines td.num{white-space:nowrap}
 .sub{display:flex;justify-content:flex-end;gap:24px;padding-top:8px}
+.stamp{float:right;color:#047857;border:3px solid #047857;border-radius:6px;font-size:20px;padding:2px 10px;margin-top:4px;letter-spacing:.06em}
+.paidrow{display:flex;justify-content:space-between;color:#047857;margin-top:10px}
 .grand{display:flex;justify-content:space-between;font-size:18px;font-weight:800;margin-top:16px}
 .paysec{margin-top:6px}
 .paysec .pay{white-space:pre-wrap;line-height:1.55}
@@ -167,6 +169,7 @@ function calc(inv){
   return {lines,sub,tax,total};
 }
 const docTitle=inv=>inv.t&&inv.t.on?'TAX INVOICE':'INVOICE';
+const paidText=pd=>'Paid'+(pd.m?' by '+pd.m.toLowerCase():'')+' on '+fmtDate(pd.d);
 const numLine=inv=>(inv.n||'')+(inv.ref?'  (Your Ref. '+inv.ref+')':'');
 async function copyText(t){
   try{await navigator.clipboard.writeText(t);return true}catch(e){
@@ -191,6 +194,8 @@ async function makePdf(inv){
   const wrap=(s,w)=>doc.splitTextToSize(String(s),w);
 
   font(true,26);doc.text(docTitle(inv),L,y);
+  const pd=inv.paid;
+  if(pd){font(true,20,[4,120,87]);const w=doc.getTextWidth('PAID');doc.setDrawColor(...[4,120,87]);doc.setLineWidth(2);doc.roundedRect(R-w-18,y-22,w+18,30,3,3,'S');doc.text('PAID',R-9,y,{align:'right'})}
   y=88;rule();
   y=114;font(true,12);doc.text(wrap(b.name||'',R-L),L,y);
   font(false,10.5,GREY);
@@ -222,10 +227,14 @@ async function makePdf(inv){
     for(const [lab,v] of [['Subtotal:',k.sub],[(t.l||'GST')+' ('+(+t.r||0)+'%):',k.tax]]){y+=16;font(false,10.5);doc.text(lab,cR,y);doc.text(money(v,cur),R,y,{align:'right'})}
     y+=4;
   }
-  y+=18;room(20);font(true,12);doc.text('Total Amount Due:',L,y);doc.text(money(k.total,cur),R,y,{align:'right'});
+  y+=18;room(60);font(true,12);doc.text(pd?'Total:':'Total Amount Due:',L,y);doc.text(money(k.total,cur),R,y,{align:'right'});
   if(t.on&&t.inc){y+=15;font(false,10,GREY);doc.text('Includes '+(t.l||'GST')+' of '+money(k.tax,cur),R,y,{align:'right'})}
+  if(pd){
+    y+=18;font(false,10.5,[4,120,87]);doc.text(paidText(pd)+':',L,y);doc.text('-'+money(k.total,cur),R,y,{align:'right'});
+    y+=20;font(true,12);doc.text('Balance Due:',L,y);doc.text(money(0,cur),R,y,{align:'right'});
+  }
 
-  if(b.pay){
+  if(b.pay&&!pd){
     const pl=String(b.pay).split('\n').filter(s=>s.trim());
     y+=40;room(20+pl.length*14);font(true,12);doc.text('Payment Details',L,y);y+=4;
     font(false,10.5);for(const l of pl){y+=14;doc.text(wrap(l,R-L),L,y)}
@@ -255,7 +264,7 @@ async function customerView(code){
   document.body.innerHTML=`
   <div class="custbar"><button id="dl">Download PDF</button></div>
   <article class="paper">
-    <h1 class="ttl">${docTitle(inv)}</h1>
+    <h1 class="ttl">${docTitle(inv)}${inv.paid?'<span class="stamp">PAID</span>':''}</h1>
     <section class="biz"><b>${esc(b.name)}</b>${bizL.map(l=>'<div class="grey">'+br(l)+'</div>').join('')}</section>
     <section class="kv"><div><b>Invoice Number:</b> ${esc(numLine(inv))}</div><div><b>Invoice Date:</b> ${fmtDate(inv.d)}</div>${inv.due?`<div><b>Due Date:</b> ${fmtDate(inv.due)}</div>`:''}</section>
     <section class="billto"><h3>Bill To:</h3><div>${esc(c.name)}</div>${billL.map(l=>'<div>'+br(l)+'</div>').join('')}${inv.job?`<div class="job"><b>Job:</b> ${br(inv.job)}</div>`:''}</section>
@@ -264,9 +273,10 @@ async function customerView(code){
       ${k.lines.map(l=>`<tr><td>${esc(l.d)}</td><td>${fmtQty(l.q)}</td><td class="num">${money(l.p,cur)}</td><td class="num">${money(l.a,cur)}</td></tr>`).join('')}
     </tbody></table>
     ${t.on&&!t.inc?`<div class="sub"><span>Subtotal:</span><span>${money(k.sub,cur)}</span></div><div class="sub"><span>${esc(t.l||'GST')} (${+t.r||0}%):</span><span>${money(k.tax,cur)}</span></div>`:''}
-    <div class="grand"><span>Total Amount Due:</span><span>${money(k.total,cur)}</span></div>
+    <div class="grand"><span>${inv.paid?'Total:':'Total Amount Due:'}</span><span>${money(k.total,cur)}</span></div>
     ${t.on&&t.inc?`<div class="sub grey"><span></span><span>Includes ${esc(t.l||'GST')} of ${money(k.tax,cur)}</span></div>`:''}
-    ${b.pay?`<section class="paysec"><h2>Payment Details</h2><div class="pay">${esc(b.pay)}</div><button id="cp">Copy payment details</button></section>`:''}
+    ${inv.paid?`<div class="paidrow"><span>${esc(paidText(inv.paid))}:</span><span>-${money(k.total,cur)}</span></div><div class="grand"><span>Balance Due:</span><span>${money(0,cur)}</span></div>`:''}
+    ${b.pay&&!inv.paid?`<section class="paysec"><h2>Payment Details</h2><div class="pay">${esc(b.pay)}</div><button id="cp">Copy payment details</button></section>`:''}
     ${notes.length?`<section class="note"><h3>Note:</h3>${notes.map(n=>'<div class="grey">'+br(n)+'</div>').join('')}</section>`:''}
     ${b.foot?`<p class="foot">${esc(b.foot)}</p>`:''}
   </article>`;
@@ -359,7 +369,7 @@ const baseUrl=()=>location.href.split('#')[0].split('?')[0];
 
 const isFixed=p=>p.p!==''&&p.p!==undefined;
 const fixedItems=()=>S.presets.filter(isFixed).map(p=>({d:p.d,q:String(p.q??1),p:String(p.p),fx:1}));
-function newDraft(){const t=today();return {c:{name:'',phone:'',email:'',addr:''},ref:'',job:'',items:fixedItems(),n:S.prefix+S.nextNo,date:t,due:+S.termsDays>0?addDays(t,+S.termsDays):'',dueAuto:true,notes:''}}
+function newDraft(){const t=today();return {c:{name:'',phone:'',email:'',addr:''},ref:'',job:'',items:fixedItems(),n:S.prefix+S.nextNo,date:t,due:+S.termsDays>0?addDays(t,+S.termsDays):'',dueAuto:true,notes:'',paid:false,pm:'Cash'}}
 
 function buildInv(){
   return prune({v:1,n:draft.n.trim(),d:draft.date,due:draft.due||'',cur:S.currency,
@@ -368,7 +378,8 @@ function buildInv(){
     ref:(draft.ref||'').trim(),job:draft.job.trim(),
     it:draft.items.filter(i=>(String(i.d).trim()||num(i.p))&&!(String(i.q).trim()!==''&&num(i.q)===0)).map(i=>[String(i.d).trim(),String(i.q).trim()===''?1:num(i.q),num(i.p)]),
     t:S.taxOn?{on:1,l:S.taxLabel,r:num(S.taxRate),inc:S.taxInc?1:0}:'',
-    note:draft.notes.trim()});
+    note:draft.notes.trim(),
+    paid:draft.paid?{d:draft.date,m:draft.pm||''}:''});
 }
 
 async function ownerApp(){
@@ -420,6 +431,8 @@ function newHtml(){
     ${fld('ref','Their reference / work order (optional)',d.ref||'','text','placeholder="e.g. WO-85422" autocapitalize="characters"')}
     ${fld('due','Due date (blank = on receipt)',d.due,'date')}
     ${area('notes','Note to customer (optional)',d.notes,'rows="2"')}
+    <label class="check paidchk"><input type="checkbox" data-k="paid" ${d.paid?'checked':''}><span><b>Paid on site</b><br><span class="muted" style="font-size:14px">Marks it PAID, shows a $0.00 balance and leaves off your bank details.</span></span></label>
+    <label class="f" id="pmrow" style="${d.paid?'':'display:none'}">Paid by<select data-k="pm">${['Cash','Card','Bank transfer'].map(m=>`<option ${d.pm===m?'selected':''}>${m}</option>`).join('')}</select></label>
     <button class="btn" data-act="clear">Clear form</button>
   </section>`;
 }
@@ -436,18 +449,20 @@ function itemsHtml(){
       <button class="x" data-act="rm" data-i="${i}" aria-label="Remove item">×</button>
     </div></div>`).join('');
 }
-const barHtml=()=>`<div class="totalbar"><div class="t">Total<b id="tot"></b></div><button class="primary" data-act="create">Create link</button></div>`;
+const barHtml=()=>`<div class="totalbar"><div class="t">Total<b id="tot"></b></div><button class="primary" data-act="create">${draft.paid?'Create receipt':'Create link'}</button></div>`;
 function updTotals(){const el=document.getElementById('tot');if(el)el.textContent=money(calc(buildInv()).total,S.currency)}
 
 function smsHref(h){
   const first=(h.name||'').split(' ')[0];
   const from=S.name===S.name.toUpperCase()?S.name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bAnd\b/g,'and').replace(/\bTv\b/g,'TV'):S.name;
-  const body=`Hi ${first}, here's your invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`;
+  const body=h.inv&&h.inv.paid
+    ?`Hi ${first}, thanks for your payment. Here's your paid invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`
+    :`Hi ${first}, here's your invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`;
   return 'sms:'+(h.ph||'').replace(/[^\d+]/g,'')+(isIOS()?'&':'?')+'body='+encodeURIComponent(body);
 }
 function resultHtml(h){
   return `<section class="card done">
-    <h3>Invoice ${esc(h.n)} is ready</h3>
+    <h3>${h.inv&&h.inv.paid?"Paid invoice":"Invoice"} ${esc(h.n)} is ready</h3>
     <div class="muted">${esc(h.name)} · ${money(h.total,S.currency)}</div>
     <div class="link">${esc(h.url)}</div>
     <a class="btn primary" href="${esc(smsHref(h))}">Text it to ${esc(h.ph||'customer')}</a>
@@ -535,7 +550,8 @@ function onInput(e){
     item.classList.toggle('off',String(it.q).trim()!==''&&num(it.q)===0);
     item.querySelector('.amt').textContent=money(r2((String(it.q).trim()===''?1:num(it.q))*num(it.p)),S.currency);
   }else if(el.dataset.k){
-    setPath(draft,el.dataset.k,el.value);
+    setPath(draft,el.dataset.k,el.type==='checkbox'?el.checked:el.value);
+    if(el.dataset.k==='paid'){const r=document.getElementById('pmrow');if(r)r.style.display=el.checked?'':'none';const b=document.querySelector('[data-act="create"]');if(b)b.textContent=el.checked?'Create receipt':'Create link'}
     if(el.dataset.k==='due')draft.dueAuto=false;
     if(el.dataset.k==='date'&&draft.dueAuto&&el.value){draft.due=+S.termsDays>0?addDays(el.value,+S.termsDays):'';const d=document.querySelector('[data-k="due"]');if(d)d.value=draft.due}
   }
@@ -592,7 +608,7 @@ async function create(){
   if(calc(inv).lines.some(l=>!l.p)&&!confirm('One or more items has no price. Create the invoice anyway?'))return;
   if(hist.some(x=>x.n===inv.n)&&!confirm(`You've already made invoice ${inv.n}. Use this number again?`))return;
   const url=baseUrl()+'#i='+await pack(inv);
-  const rec={id:Date.now(),n:inv.n,name:inv.c.name,ph:inv.c.ph||'',total:calc(inv).total,d:inv.d,url,paid:false,inv};
+  const rec={id:Date.now(),n:inv.n,name:inv.c.name,ph:inv.c.ph||'',total:calc(inv).total,d:inv.d,url,paid:!!inv.paid,inv};
   hist.unshift(rec);saveHist();
   const c=draft.c;custs[c.name.trim().toLowerCase()]={name:c.name.trim(),phone:c.phone.trim(),email:c.email.trim(),addr:c.addr.trim()};LS.set('inv.customers',custs);
   if(inv.n===S.prefix+S.nextNo){S.nextNo++;saveS()}
