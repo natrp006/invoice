@@ -97,6 +97,8 @@ body.cust{background:#e5e7eb;color:#111827}
 .sub{display:flex;justify-content:flex-end;gap:24px;padding-top:8px}
 .stamp{float:right;color:#047857;border:3px solid #047857;border-radius:6px;font-size:20px;padding:2px 10px;margin-top:4px;letter-spacing:.06em}
 .paidrow{display:flex;justify-content:space-between;color:#047857;margin-top:10px}
+.lic{text-align:right;margin-top:6px}
+.decl{margin-top:24px;font-size:14px;line-height:1.5}
 .grand{display:flex;justify-content:space-between;font-size:18px;font-weight:800;margin-top:16px}
 .paysec{margin-top:6px}
 .paysec .pay{white-space:pre-wrap;line-height:1.55}
@@ -200,6 +202,7 @@ async function makePdf(inv){
   y=114;font(true,12);doc.text(wrap(b.name||'',R-L),L,y);
   font(false,10.5,GREY);
   for(const l of [b.own,b.reg?(b.regL||'ABN')+': '+b.reg:'',...String(b.addr||'').split('\n'),b.ph?'Phone: '+b.ph:'',b.em?'Email: '+b.em:''].filter(Boolean)){y+=14;doc.text(l,L,y)}
+  if(b.lic){y+=20;font(false,10.5);doc.text(b.lic,R,y,{align:'right'})}
 
   y+=32;
   const kv=(label,val)=>{font(true,10.5);doc.text(label,L,y);const w=doc.getTextWidth(label);font(false,10.5);doc.text(val,L+w,y);y+=15};
@@ -244,6 +247,7 @@ async function makePdf(inv){
     y+=34;room(40);font(true,11);doc.text('Note:',L,y);
     for(const n of notes){const nl=wrap(n,R-L);y+=15;font(false,10.5,GREY);room(nl.length*13);doc.text(nl,L,y);y+=(nl.length-1)*13}
   }
+  if(b.decl){const dl=wrap(b.decl,R-L);y+=34;room(dl.length*13+4);font(false,10);doc.text(dl,L,y);y+=(dl.length-1)*13}
   if(b.foot){y+=34;room(14);font(true,10.5);doc.text(wrap(b.foot,R-L),L,y)}
   return doc;
 }
@@ -265,7 +269,7 @@ async function customerView(code){
   <div class="custbar"><button id="dl">Download PDF</button></div>
   <article class="paper">
     <h1 class="ttl">${docTitle(inv)}${inv.paid?'<span class="stamp">PAID</span>':''}</h1>
-    <section class="biz"><b>${esc(b.name)}</b>${bizL.map(l=>'<div class="grey">'+br(l)+'</div>').join('')}</section>
+    <section class="biz"><b>${esc(b.name)}</b>${bizL.map(l=>'<div class="grey">'+br(l)+'</div>').join('')}${b.lic?`<div class="lic">${esc(b.lic)}</div>`:''}</section>
     <section class="kv"><div><b>Invoice Number:</b> ${esc(numLine(inv))}</div><div><b>Invoice Date:</b> ${fmtDate(inv.d)}</div>${inv.due?`<div><b>Due Date:</b> ${fmtDate(inv.due)}</div>`:''}</section>
     <section class="billto"><h3>Bill To:</h3><div>${esc(c.name)}</div>${billL.map(l=>'<div>'+br(l)+'</div>').join('')}${inv.job?`<div class="job"><b>Job:</b> ${br(inv.job)}</div>`:''}</section>
     <h2>Description of Services</h2>
@@ -278,6 +282,7 @@ async function customerView(code){
     ${inv.paid?`<div class="paidrow"><span>${esc(paidText(inv.paid))}:</span><span>-${money(k.total,cur)}</span></div><div class="grand"><span>Balance Due:</span><span>${money(0,cur)}</span></div>`:''}
     ${b.pay&&!inv.paid?`<section class="paysec"><h2>Payment Details</h2><div class="pay">${esc(b.pay)}</div><button id="cp">Copy payment details</button></section>`:''}
     ${notes.length?`<section class="note"><h3>Note:</h3>${notes.map(n=>'<div class="grey">'+br(n)+'</div>').join('')}</section>`:''}
+    ${b.decl?`<p class="decl">${br(b.decl)}</p>`:''}
     ${b.foot?`<p class="foot">${esc(b.foot)}</p>`:''}
   </article>`;
   loadScript(JSPDF_URL).catch(()=>{});
@@ -295,6 +300,7 @@ const DEFAULTS={
   name:'',owner:'',regLabel:'ABN',regNo:'',phone:'',email:'',address:'',
   payment:'',
   taxOn:false,taxLabel:'GST',taxRate:10,taxInc:false,
+  lic:'',decl:'',
   gstNote:'This supplier is not registered for GST, therefore GST has not been charged.',
   currency:'$',prefix:'',nextNo:1,termsDays:0,
   footer:'Thank you for your business.',
@@ -369,11 +375,11 @@ const baseUrl=()=>location.href.split('#')[0].split('?')[0];
 
 const isFixed=p=>p.p!==''&&p.p!==undefined;
 const fixedItems=()=>S.presets.filter(isFixed).map(p=>({d:p.d,q:String(p.q??1),p:String(p.p),fx:1}));
-function newDraft(){const t=today();return {c:{name:'',phone:'',email:'',addr:''},ref:'',job:'',items:fixedItems(),n:S.prefix+S.nextNo,date:t,due:+S.termsDays>0?addDays(t,+S.termsDays):'',dueAuto:true,notes:'',paid:false,pm:'Cash'}}
+function newDraft(){const t=today();return {c:{name:'',phone:'',email:'',addr:''},ref:'',job:'',items:fixedItems(),n:S.prefix+S.nextNo,date:t,due:+S.termsDays>0?addDays(t,+S.termsDays):'',dueAuto:true,notes:'',paid:false,pm:'Cash',decl:true}}
 
 function buildInv(){
   return prune({v:1,n:draft.n.trim(),d:draft.date,due:draft.due||'',cur:S.currency,
-    b:{name:S.name,own:S.owner,regL:S.regLabel,reg:S.regNo,ph:S.phone,em:S.email,addr:S.address,pay:S.payment,foot:S.footer,gn:S.gstNote},
+    b:{name:S.name,own:S.owner,regL:S.regLabel,reg:S.regNo,ph:S.phone,em:S.email,addr:S.address,pay:S.payment,foot:S.footer,gn:S.gstNote,lic:S.lic,decl:draft.decl!==false?S.decl:''},
     c:{name:draft.c.name.trim(),ph:draft.c.phone.trim(),em:draft.c.email.trim(),addr:draft.c.addr.trim()},
     ref:(draft.ref||'').trim(),job:draft.job.trim(),
     it:draft.items.filter(i=>(String(i.d).trim()||num(i.p))&&!(String(i.q).trim()!==''&&num(i.q)===0)).map(i=>[String(i.d).trim(),String(i.q).trim()===''?1:num(i.q),num(i.p)]),
@@ -432,6 +438,7 @@ function newHtml(){
     ${fld('due','Due date (blank = on receipt)',d.due,'date')}
     ${area('notes','Note to customer (optional)',d.notes,'rows="2"')}
     <label class="check paidchk"><input type="checkbox" data-k="paid" ${d.paid?'checked':''}><span><b>Paid on site</b><br><span class="muted" style="font-size:14px">Marks it PAID, shows a $0.00 balance and leaves off your bank details.</span></span></label>
+    ${S.decl?`<label class="check"><input type="checkbox" data-k="decl" ${d.decl!==false?'checked':''}><span>Include cabling declaration (TCA1)</span></label>`:''}
     <label class="f" id="pmrow" style="${d.paid?'':'display:none'}">Paid by<select data-k="pm">${['Cash','Card','Bank transfer'].map(m=>`<option ${d.pm===m?'selected':''}>${m}</option>`).join('')}</select></label>
     <button class="btn" data-act="clear">Clear form</button>
   </section>`;
@@ -452,6 +459,13 @@ function itemsHtml(){
 const barHtml=()=>`<div class="totalbar"><div class="t">Total<b id="tot"></b></div><button class="primary" data-act="create">${draft.paid?'Create receipt':'Create link'}</button></div>`;
 function updTotals(){const el=document.getElementById('tot');if(el)el.textContent=money(calc(buildInv()).total,S.currency)}
 
+function mailHref(h){
+  if(!S.email)return '';
+  const amt=money(h.total,S.currency),paid=h.inv&&h.inv.paid;
+  const subj=`Invoice ${h.n} – ${h.name} – ${amt}${paid?' (paid)':''}`;
+  const body=`Copy of invoice ${h.n} for ${h.name}, ${amt}${paid?' – '+paidText(h.inv.paid).toLowerCase():''}, dated ${fmtDate(h.d)}.\n\nView or download the PDF:\n${h.url}`;
+  return 'mailto:'+encodeURIComponent(S.email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+}
 function smsHref(h){
   const first=(h.name||'').split(' ')[0];
   const from=S.name===S.name.toUpperCase()?S.name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bAnd\b/g,'and').replace(/\bTv\b/g,'TV'):S.name;
@@ -466,6 +480,7 @@ function resultHtml(h){
     <div class="muted">${esc(h.name)} · ${money(h.total,S.currency)}</div>
     <div class="link">${esc(h.url)}</div>
     <a class="btn primary" href="${esc(smsHref(h))}">Text it to ${esc(h.ph||'customer')}</a>
+    ${mailHref(h)?`<a class="btn" href="${esc(mailHref(h))}">Email me a copy</a>`:''}
     ${navigator.share?`<button class="btn" data-act="share" data-id="${h.id}">Share another way…</button>`:''}
     <button class="btn" data-act="copy" data-id="${h.id}">Copy link</button>
     <a class="btn" href="${esc(h.url)}" target="_blank" rel="noopener">See what they'll see</a>
@@ -484,6 +499,7 @@ function historyHtml(){
       <button class="btn" data-act="copy" data-id="${h.id}">Copy link</button>
       <button class="btn ${h.paid?'':'good'}" data-act="paid" data-id="${h.id}">${h.paid?'Mark unpaid':'Mark paid'}</button>
       <button class="btn" data-act="dup" data-id="${h.id}">Copy to new</button>
+      ${mailHref(h)?`<a class="btn" href="${esc(mailHref(h))}" style="grid-column:1/-1">Email me a copy</a>`:''}
     </div></section>`).join('')+`<button class="btn" data-act="clearhist" style="margin-bottom:12px">Delete this list</button>`;
 }
 function settingsHtml(){
@@ -511,6 +527,10 @@ function settingsHtml(){
     <div class="two">${sf('termsDays','Days to pay','text','inputmode="numeric"')}${sf('currency','Currency symbol')}</div>
     ${sf('footer','Footer message')}
     ${sa('gstNote','Note shown when not registered for GST','rows="2"')}
+  </section>
+  <section class="card"><h2>Licence &amp; TCA1 declaration</h2>
+    ${sf('lic','Licence line (top right of invoice)','text','placeholder="ACMA Lic. …"')}
+    ${sa('decl','Cabling declaration (bottom of invoice)','rows="4"')}
   </section>
   <section class="card"><h2>Standard lines</h2>
     <p class="hint">One per line: <b>description | price | starting qty</b>. Lines with a price go on every new invoice with the price locked: just set the qty (0 leaves it off) or tap × to remove it. Lines without a price are quick-add buttons.</p>
