@@ -96,6 +96,7 @@ body.cust{background:#e5e7eb;color:#111827}
 .lines td.num{white-space:nowrap}
 .sub{display:flex;justify-content:flex-end;gap:24px;padding-top:8px}
 .stamp{float:right;color:#047857;border:3px solid #047857;border-radius:6px;font-size:20px;padding:2px 10px;margin-top:4px;letter-spacing:.06em}
+.thanks{color:#047857;font-weight:800;font-size:17px;margin-top:14px}
 .paidrow{display:flex;justify-content:space-between;color:#047857;margin-top:10px}
 .lic{text-align:right;margin-top:6px}
 .decl{margin-top:24px;font-size:14px;line-height:1.5}
@@ -235,6 +236,7 @@ async function makePdf(inv){
   if(pd){
     y+=18;font(false,10.5,[4,120,87]);doc.text(paidText(pd)+':',L,y);doc.text('-'+money(k.total,cur),R,y,{align:'right'});
     y+=20;font(true,12);doc.text('Balance Due:',L,y);doc.text(money(0,cur),R,y,{align:'right'});
+    y+=22;font(true,12,[4,120,87]);doc.text('Payment received, thank you.',L,y);
   }
 
   if(b.pay&&!pd){
@@ -279,7 +281,7 @@ async function customerView(code){
     ${t.on&&!t.inc?`<div class="sub"><span>Subtotal:</span><span>${money(k.sub,cur)}</span></div><div class="sub"><span>${esc(t.l||'GST')} (${+t.r||0}%):</span><span>${money(k.tax,cur)}</span></div>`:''}
     <div class="grand"><span>${inv.paid?'Total:':'Total Amount Due:'}</span><span>${money(k.total,cur)}</span></div>
     ${t.on&&t.inc?`<div class="sub grey"><span></span><span>Includes ${esc(t.l||'GST')} of ${money(k.tax,cur)}</span></div>`:''}
-    ${inv.paid?`<div class="paidrow"><span>${esc(paidText(inv.paid))}:</span><span>-${money(k.total,cur)}</span></div><div class="grand"><span>Balance Due:</span><span>${money(0,cur)}</span></div>`:''}
+    ${inv.paid?`<div class="paidrow"><span>${esc(paidText(inv.paid))}:</span><span>-${money(k.total,cur)}</span></div><div class="grand"><span>Balance Due:</span><span>${money(0,cur)}</span></div><div class="thanks">Payment received, thank you.</div>`:''}
     ${b.pay&&!inv.paid?`<section class="paysec"><h2>Payment Details</h2><div class="pay">${esc(b.pay)}</div><button id="cp">Copy payment details</button></section>`:''}
     ${notes.length?`<section class="note"><h3>Note:</h3>${notes.map(n=>'<div class="grey">'+br(n)+'</div>').join('')}</section>`:''}
     ${b.decl?`<p class="decl">${br(b.decl)}</p>`:''}
@@ -368,7 +370,7 @@ document.addEventListener('visibilitychange',()=>{
   else if(hiddenAt&&Date.now()-hiddenAt>RELOCK_MS){setUnlocked(false);location.reload()}
 });
 async function setupLink(){return baseUrl()+'#setup='+await pack({s:Object.assign({},S),c:custs})}
-let S,draft,hist,custs,tab,lastResult;
+let S,draft,hist,custs,tab,lastResult,payFor=null;
 const saveS=()=>LS.set('inv.settings',S),saveDraft=()=>LS.set('inv.draft',draft),saveHist=()=>LS.set('inv.history',hist);
 const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const baseUrl=()=>location.href.split('#')[0].split('?')[0];
@@ -409,7 +411,7 @@ function show(){
   document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
   const v=document.getElementById('view'),bar=document.getElementById('bar');bar.innerHTML='';
   if(tab==='new'){if(lastResult)v.innerHTML=resultHtml(lastResult);else{v.innerHTML=newHtml();bar.innerHTML=barHtml();updTotals()}}
-  else if(tab==='history')v.innerHTML=historyHtml();
+  else if(tab==='history')v.innerHTML=payFor?payHtml(payFor):historyHtml();
   else v.innerHTML=settingsHtml();
   window.scrollTo(0,0);
 }
@@ -470,7 +472,7 @@ function smsHref(h){
   const first=(h.name||'').split(' ')[0];
   const from=S.name===S.name.toUpperCase()?S.name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bAnd\b/g,'and').replace(/\bTv\b/g,'TV'):S.name;
   const body=h.inv&&h.inv.paid
-    ?`Hi ${first}, thanks for your payment. Here's your paid invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`
+    ?`Hi ${first}, payment received, thank you. Here's your paid invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`
     :`Hi ${first}, here's your invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`;
   return 'sms:'+(h.ph||'').replace(/[^\d+]/g,'')+(isIOS()?'&':'?')+'body='+encodeURIComponent(body);
 }
@@ -487,6 +489,15 @@ function resultHtml(h){
     <button class="btn" data-act="another">Start another invoice</button>
   </section>`;
 }
+function payHtml(h){
+  return `<section class="card"><h2>Payment received</h2>
+    <p style="margin:0 0 12px"><b>Invoice ${esc(h.n)}</b> · ${esc(h.name)} · ${money(h.total,S.currency)}</p>
+    <label class="f">Date paid<input type="date" id="pf-date" value="${today()}"></label>
+    <label class="f">Paid by<select id="pf-method">${['Bank transfer','Cash','Card'].map(m=>`<option>${m}</option>`).join('')}</select></label>
+    <button class="btn good" data-act="confirmpaid">Mark paid and get new link</button>
+    <button class="btn" data-act="cancelpaid">Cancel</button>
+  </section>`;
+}
 function historyHtml(){
   if(!hist.length)return '<div class="empty">Invoices you create will show up here.</div>';
   const owed=hist.filter(h=>!h.paid).reduce((s,h)=>s+h.total,0);
@@ -497,7 +508,7 @@ function historyHtml(){
     <div class="acts">
       <a class="btn" href="${esc(smsHref(h))}">Text again</a>
       <button class="btn" data-act="copy" data-id="${h.id}">Copy link</button>
-      <button class="btn ${h.paid?'':'good'}" data-act="paid" data-id="${h.id}">${h.paid?'Mark unpaid':'Mark paid'}</button>
+      <button class="btn ${h.inv&&h.inv.paid?'':'good'}" data-act="paid" data-id="${h.id}">${h.inv&&h.inv.paid?'Mark unpaid':'Payment received'}</button>
       <button class="btn" data-act="dup" data-id="${h.id}">Copy to new</button>
       ${mailHref(h)?`<a class="btn" href="${esc(mailHref(h))}" style="grid-column:1/-1">Email me a copy</a>`:''}
     </div></section>`).join('')+`<button class="btn" data-act="clearhist" style="margin-bottom:12px">Delete this list</button>`;
@@ -586,7 +597,7 @@ function onChange(e){
 }
 async function onClick(e){
   const tb=e.target.closest('[data-tab]');
-  if(tb){if(tab==='settings'&&tb.dataset.tab!=='settings'&&document.querySelector('[data-s]')){readSettings();saveS()}tab=tb.dataset.tab;show();return}
+  if(tb){if(tab==='settings'&&tb.dataset.tab!=='settings'&&document.querySelector('[data-s]')){readSettings();saveS()}tab=tb.dataset.tab;payFor=null;show();return}
   const a=e.target.closest('[data-act]');if(!a)return;
   const act=a.dataset.act,h=hist.find(x=>String(x.id)===a.dataset.id);
   if(act==='preset'){const p=S.presets[+a.dataset.i];draft.items.push(isFixed(p)?{d:p.d,q:'1',p:String(p.p),fx:1}:{d:p.d,q:'1',p:''});rerenderItems(!isFixed(p))}
@@ -597,7 +608,17 @@ async function onClick(e){
   else if(act==='another'){lastResult=null;show()}
   else if(act==='copy'&&h){toast(await copyText(h.url)?'Link copied':'Copy failed')}
   else if(act==='share'&&h){try{await navigator.share({title:'Invoice '+h.n,text:`Invoice ${h.n} from ${S.name} for ${money(h.total,S.currency)}`,url:h.url})}catch(_){}}
-  else if(act==='paid'&&h){h.paid=!h.paid;saveHist();show()}
+  else if(act==='paid'&&h){
+    if(h.inv&&h.inv.paid){
+      if(confirm(`Mark invoice ${h.n} as unpaid? Any paid copy you already sent will still say paid.`)){delete h.inv.paid;h.paid=false;h.url=baseUrl()+'#i='+await pack(h.inv);saveHist();show()}
+    }else{payFor=h;show()}
+  }
+  else if(act==='cancelpaid'){payFor=null;show()}
+  else if(act==='confirmpaid'&&payFor){
+    const d=document.getElementById('pf-date').value||today(),m=document.getElementById('pf-method').value;
+    const rec=payFor;rec.inv.paid={d,m};rec.paid=true;rec.url=baseUrl()+'#i='+await pack(rec.inv);saveHist();
+    payFor=null;lastResult=rec;tab='new';show();
+  }
   else if(act==='dup'&&h){
     const i=h.inv,c=i.c||{};draft=newDraft();
     draft.c={name:c.name||'',phone:c.ph||'',email:c.em||'',addr:c.addr||''};draft.job=i.job||'';draft.notes=i.note||'';
