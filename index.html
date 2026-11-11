@@ -387,7 +387,7 @@ function buildInv(){
     it:draft.items.filter(i=>(String(i.d).trim()||num(i.p))&&!(String(i.q).trim()!==''&&num(i.q)===0)).map(i=>[String(i.d).trim(),String(i.q).trim()===''?1:num(i.q),num(i.p)]),
     t:S.taxOn?{on:1,l:S.taxLabel,r:num(S.taxRate),inc:S.taxInc?1:0}:'',
     note:draft.notes.trim(),
-    paid:draft.paid?{d:draft.date,m:draft.pm||''}:''});
+    paid:draft.paid?{d:draft.paidD||draft.date,m:draft.pm||''}:''});
 }
 
 async function ownerApp(){
@@ -421,7 +421,8 @@ const area=(k,label,val,extra='')=>`<label class="f">${label}<textarea data-k="$
 function newHtml(){
   const d=draft,fileWarn=location.protocol==='file:'?'<div class="warn">You\'re opening this from a file on this computer, so links won\'t work for customers yet. Put it online first.</div>':'';
   const setWarn=!S.name?'<div class="warn">Add your business details under <b>My details</b> first.</div>':'';
-  return `${fileWarn}${setWarn}
+  const editBanner=d.editId?`<div class="warn editing"><b>Editing invoice ${esc(d.n)}</b><br>Change what you need, then tap <b>Save changes</b> for a new link to send. <button class="btn" data-act="canceledit">Cancel editing</button></div>`:'';
+  return `${fileWarn}${setWarn}${editBanner}
   <section class="card"><h2>Customer</h2>
     ${fld('c.name','Name',d.c.name,'text','list="custlist" autocomplete="off" autocapitalize="words"')}
     <datalist id="custlist">${Object.values(custs).map(c=>`<option value="${esc(c.name)}">`).join('')}</datalist>
@@ -458,7 +459,7 @@ function itemsHtml(){
       <button class="x" data-act="rm" data-i="${i}" aria-label="Remove item">×</button>
     </div></div>`).join('');
 }
-const barHtml=()=>`<div class="totalbar"><div class="t">Total<b id="tot"></b></div><button class="primary" data-act="create">${draft.paid?'Create receipt':'Create link'}</button></div>`;
+const barHtml=()=>`<div class="totalbar"><div class="t">Total<b id="tot"></b></div><button class="primary" data-act="create">${draft.editId?'Save changes':draft.paid?'Create receipt':'Create link'}</button></div>`;
 function updTotals(){const el=document.getElementById('tot');if(el)el.textContent=money(calc(buildInv()).total,S.currency)}
 
 function mailHref(h){
@@ -468,20 +469,28 @@ function mailHref(h){
   const body=`Copy of invoice ${h.n} for ${h.name}, ${amt}${paid?' – '+paidText(h.inv.paid).toLowerCase():''}, dated ${fmtDate(h.d)}.\n\nView or download the PDF:\n${h.url}`;
   return 'mailto:'+encodeURIComponent(S.email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
 }
+const fromName=()=>S.name===S.name.toUpperCase()?S.name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bAnd\b/g,'and').replace(/\bTv\b/g,'TV'):S.name;
+const lead=h=>h.inv&&h.inv.paid?'payment received, thank you. Here\'s your paid invoice':h.amended?'here\'s your updated invoice':'here\'s your invoice';
+function custMailHref(h){
+  const c=(h.inv&&h.inv.c)||{},first=(h.name||'').split(' ')[0],amt=money(h.total,S.currency);
+  const kind=h.inv&&h.inv.paid?'Paid invoice':h.amended?'Updated invoice':'Invoice';
+  const subj=`${kind} ${h.n} from ${fromName()} – ${amt}`;
+  const body=`Hi ${first},\n\n${lead(h).charAt(0).toUpperCase()+lead(h).slice(1)} ${h.n} for ${amt}.\n\nYou can view it and download a PDF here:\n${h.url}\n\nThanks,\n${S.owner||fromName()}\n${S.owner?fromName()+'\n':''}${S.phone||''}`;
+  return 'mailto:'+encodeURIComponent(c.em||'')+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+}
 function smsHref(h){
   const first=(h.name||'').split(' ')[0];
   const from=S.name===S.name.toUpperCase()?S.name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bAnd\b/g,'and').replace(/\bTv\b/g,'TV'):S.name;
-  const body=h.inv&&h.inv.paid
-    ?`Hi ${first}, payment received, thank you. Here's your paid invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`
-    :`Hi ${first}, here's your invoice ${h.n} from ${from} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`;
+  const body=`Hi ${first}, ${lead(h)} ${h.n} from ${fromName()} for ${money(h.total,S.currency)}. View and download it here: ${h.url}`;
   return 'sms:'+(h.ph||'').replace(/[^\d+]/g,'')+(isIOS()?'&':'?')+'body='+encodeURIComponent(body);
 }
 function resultHtml(h){
   return `<section class="card done">
-    <h3>${h.inv&&h.inv.paid?"Paid invoice":"Invoice"} ${esc(h.n)} is ready</h3>
+    <h3>${h.amended?"Updated invoice":h.inv&&h.inv.paid?"Paid invoice":"Invoice"} ${esc(h.n)} is ready</h3>
     <div class="muted">${esc(h.name)} · ${money(h.total,S.currency)}</div>
     <div class="link">${esc(h.url)}</div>
-    <a class="btn primary" href="${esc(smsHref(h))}">Text it to ${esc(h.ph||'customer')}</a>
+    ${h.ph||!(h.inv&&h.inv.c&&h.inv.c.em)?`<a class="btn primary" href="${esc(smsHref(h))}">Text it to ${esc(h.ph||'customer')}</a>`:''}
+    <a class="btn ${!h.ph&&h.inv&&h.inv.c&&h.inv.c.em?'primary':''}" href="${esc(custMailHref(h))}">Email it to ${esc((h.inv&&h.inv.c&&h.inv.c.em)||'customer')}</a>
     ${mailHref(h)?`<a class="btn" href="${esc(mailHref(h))}">Email me a copy</a>`:''}
     ${navigator.share?`<button class="btn" data-act="share" data-id="${h.id}">Share another way…</button>`:''}
     <button class="btn" data-act="copy" data-id="${h.id}">Copy link</button>
@@ -507,8 +516,10 @@ function historyHtml(){
     <div style="text-align:right"><div style="font-weight:700">${money(h.total,S.currency)}</div><span class="badge ${h.paid?'paid':''}">${h.paid?'Paid':'Unpaid'}</span></div></div>
     <div class="acts">
       <a class="btn" href="${esc(smsHref(h))}">Text again</a>
+      <a class="btn" href="${esc(custMailHref(h))}">Email again</a>
       <button class="btn" data-act="copy" data-id="${h.id}">Copy link</button>
       <button class="btn ${h.inv&&h.inv.paid?'':'good'}" data-act="paid" data-id="${h.id}">${h.inv&&h.inv.paid?'Mark unpaid':'Payment received'}</button>
+      <button class="btn" data-act="edit" data-id="${h.id}">Edit &amp; resend</button>
       <button class="btn" data-act="dup" data-id="${h.id}">Copy to new</button>
       ${mailHref(h)?`<a class="btn" href="${esc(mailHref(h))}" style="grid-column:1/-1">Email me a copy</a>`:''}
     </div></section>`).join('')+`<button class="btn" data-act="clearhist" style="margin-bottom:12px">Delete this list</button>`;
@@ -619,6 +630,14 @@ async function onClick(e){
     const rec=payFor;rec.inv.paid={d,m};rec.paid=true;rec.url=baseUrl()+'#i='+await pack(rec.inv);saveHist();
     payFor=null;lastResult=rec;tab='new';show();
   }
+  else if(act==='edit'&&h){
+    const i=h.inv,c=i.c||{};
+    draft={c:{name:c.name||'',phone:c.ph||'',email:c.em||'',addr:c.addr||''},ref:i.ref||'',job:i.job||'',
+      items:(i.it||[]).map(([d,q,p])=>({d,q:String(q),p:String(p)})),n:i.n||'',date:i.d||today(),due:i.due||'',dueAuto:false,notes:i.note||'',
+      paid:!!i.paid,pm:(i.paid&&i.paid.m)||'Cash',paidD:i.paid?i.paid.d:'',decl:!!(i.b&&i.b.decl),editId:h.id};
+    saveDraft();lastResult=null;tab='new';show();
+  }
+  else if(act==='canceledit'){draft=newDraft();saveDraft();show()}
   else if(act==='dup'&&h){
     const i=h.inv,c=i.c||{};draft=newDraft();
     draft.c={name:c.name||'',phone:c.ph||'',email:c.em||'',addr:c.addr||''};draft.job=i.job||'';draft.notes=i.note||'';
@@ -647,8 +666,15 @@ async function create(){
   if(!inv.c||!inv.c.name){toast('Add the customer\'s name');document.querySelector('[data-k="c.name"]').focus();return}
   if(!inv.it||!inv.it.length){toast('Add at least one item');return}
   if(calc(inv).lines.some(l=>!l.p)&&!confirm('One or more items has no price. Create the invoice anyway?'))return;
-  if(hist.some(x=>x.n===inv.n)&&!confirm(`You've already made invoice ${inv.n}. Use this number again?`))return;
+  const editing=draft.editId?hist.find(x=>x.id===draft.editId):null;
+  if(hist.some(x=>x.n===inv.n&&x!==editing)&&!confirm(`You've already made invoice ${inv.n}. Use this number again?`))return;
   const url=baseUrl()+'#i='+await pack(inv);
+  if(editing){
+    Object.assign(editing,{n:inv.n,name:inv.c.name,ph:inv.c.ph||'',total:calc(inv).total,d:inv.d,url,paid:!!inv.paid,inv,amended:today()});
+    saveHist();
+    const c=draft.c;custs[c.name.trim().toLowerCase()]={name:c.name.trim(),phone:c.phone.trim(),email:c.email.trim(),addr:c.addr.trim()};LS.set('inv.customers',custs);
+    lastResult=editing;draft=newDraft();saveDraft();show();return;
+  }
   const rec={id:Date.now(),n:inv.n,name:inv.c.name,ph:inv.c.ph||'',total:calc(inv).total,d:inv.d,url,paid:!!inv.paid,inv};
   hist.unshift(rec);saveHist();
   const c=draft.c;custs[c.name.trim().toLowerCase()]={name:c.name.trim(),phone:c.phone.trim(),email:c.email.trim(),addr:c.addr.trim()};LS.set('inv.customers',custs);
